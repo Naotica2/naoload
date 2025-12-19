@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Cobalt API - Free, open-source, no API key needed
-// Docs: https://github.com/imputnet/cobalt
+// Cobalt API - Free, open-source video downloader
+// List of public instances: https://instances.cobalt.best
+
+// Try multiple instances in order of reliability
+const COBALT_INSTANCES = [
+    'https://cobalt-api.meowing.de',      // 92% uptime
+    'https://cobalt-backend.canine.tools', // 80% uptime  
+    'https://capi.3kh0.net',              // 76% uptime
+    'https://kityune.imput.net',          // 76% uptime
+];
 
 export async function POST(request: NextRequest) {
     try {
@@ -12,87 +20,74 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: 'error', error: { code: 'Missing URL' } }, { status: 400 });
         }
 
-        // Cobalt API URL - You can use the public instance or self-host
-        // Public instance: https://api.cobalt.tools
-        // Alternative: https://co.wuk.sh (older)
-        const cobaltApiUrl = process.env.COBALT_API_URL || 'https://api.cobalt.tools';
-
         console.log('Download request for URL:', url);
-        console.log('Using Cobalt API:', cobaltApiUrl);
 
-        const response = await fetch(`${cobaltApiUrl}/`, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                url: url,
-                videoQuality: '1080',      // Max quality: 144, 240, 360, 480, 720, 1080, 1440, 2160, max
-                audioFormat: 'mp3',        // mp3, ogg, opus, wav
-                filenameStyle: 'pretty',   // classic, pretty, basic, nerdy
-                downloadMode: 'auto',      // auto, audio, mute
-                youtubeVideoCodec: 'h264', // h264, av1, vp9
-                youtubeDubLang: 'id',      // Language for dubbed audio
-            }),
-        });
+        // Try each instance until one works
+        let lastError = null;
 
-        const data = await response.json();
+        for (const instance of COBALT_INSTANCES) {
+            try {
+                console.log('Trying Cobalt instance:', instance);
 
-        console.log('Cobalt API response status:', response.status);
-        console.log('Cobalt API response:', JSON.stringify(data).substring(0, 1000));
+                const response = await fetch(`${instance}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        url: url,
+                        videoQuality: '1080',
+                        audioFormat: 'mp3',
+                        filenameStyle: 'pretty',
+                        downloadMode: 'auto',
+                        youtubeVideoCodec: 'h264',
+                    }),
+                });
 
-        if (!response.ok) {
-            return NextResponse.json(
-                {
-                    status: 'error',
-                    error: {
-                        code: data.error?.code || data.text || `API Error: ${response.status}`
+                const data = await response.json();
+                console.log('Response from', instance, ':', response.status, JSON.stringify(data).substring(0, 500));
+
+                // Check if successful
+                if (response.ok && (data.status === 'redirect' || data.status === 'tunnel' || data.status === 'picker')) {
+                    // Success! Return the result
+                    if (data.status === 'redirect' || data.status === 'tunnel') {
+                        return NextResponse.json({
+                            status: 'redirect',
+                            url: data.url,
+                            filename: data.filename || 'download',
+                        });
                     }
-                },
-                { status: response.status || 400 }
-            );
+
+                    if (data.status === 'picker') {
+                        const picker = data.picker?.map((item: { url: string; type?: string; thumb?: string }) => ({
+                            url: item.url,
+                            type: item.type || 'video',
+                            thumb: item.thumb,
+                        })) || [];
+
+                        return NextResponse.json({
+                            status: 'picker',
+                            picker: picker,
+                            audio: data.audio,
+                        });
+                    }
+                }
+
+                // If this instance returned an error, save it and try next
+                lastError = data.error?.code || data.text || `HTTP ${response.status}`;
+
+            } catch (instanceError) {
+                console.log('Instance failed:', instance, instanceError);
+                lastError = instanceError instanceof Error ? instanceError.message : 'Connection failed';
+                // Continue to next instance
+            }
         }
 
-        // Handle Cobalt response types
-        // status can be: redirect, tunnel, picker, error
-
-        if (data.status === 'redirect' || data.status === 'tunnel') {
-            // Direct download URL
-            return NextResponse.json({
-                status: 'redirect',
-                url: data.url,
-                filename: data.filename || 'download',
-            });
-        }
-
-        if (data.status === 'picker') {
-            // Multiple options available (e.g., Instagram carousel, TikTok slideshow)
-            const picker = data.picker?.map((item: { url: string; type?: string; thumb?: string }) => ({
-                url: item.url,
-                type: item.type || 'video',
-                thumb: item.thumb,
-            })) || [];
-
-            return NextResponse.json({
-                status: 'picker',
-                picker: picker,
-                audio: data.audio, // Optional audio URL for slideshows
-            });
-        }
-
-        if (data.status === 'error') {
-            return NextResponse.json({
-                status: 'error',
-                error: { code: data.error?.code || data.text || 'Unknown error from Cobalt' },
-            });
-        }
-
-        // Fallback - return raw response
+        // All instances failed
         return NextResponse.json({
             status: 'error',
-            error: { code: 'Unknown response format from Cobalt' },
-            debug: data,
+            error: { code: `All Cobalt instances failed. Last error: ${lastError}` },
         });
 
     } catch (error) {
