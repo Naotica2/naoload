@@ -8,6 +8,20 @@ function detectPlatform(url: string): 'instagram' | 'tiktok' | 'youtube' | 'unkn
     return 'unknown';
 }
 
+// Extract Instagram shortcode from URL
+function extractInstagramShortcode(url: string): string | null {
+    const patterns = [
+        /instagram\.com\/p\/([A-Za-z0-9_-]+)/,
+        /instagram\.com\/reel\/([A-Za-z0-9_-]+)/,
+        /instagram\.com\/reels\/([A-Za-z0-9_-]+)/,
+    ];
+    for (const pattern of patterns) {
+        const match = url.match(pattern);
+        if (match) return match[1];
+    }
+    return null;
+}
+
 // Extract YouTube video ID from URL
 function extractYoutubeVideoId(url: string): string | null {
     const patterns = [
@@ -50,11 +64,18 @@ export async function POST(request: NextRequest) {
         let apiUrl = '';
 
         // Build API request based on platform
-        // Using the smvd (Social Media Video Downloader) API endpoint format
+        // Using SMVD (Social Media Video Downloader) API endpoints
         switch (platform) {
             case 'instagram': {
-                // Try the generic download endpoint with the full URL
-                apiUrl = `https://${rapidApiHost}/smvd/get/all?url=${encodeURIComponent(url)}`;
+                const shortcode = extractInstagramShortcode(url);
+                if (!shortcode) {
+                    return NextResponse.json(
+                        { status: 'error', error: { code: 'Invalid Instagram URL. Please use a post or reel URL.' } },
+                        { status: 400 }
+                    );
+                }
+                // SMVD Instagram endpoint - /instagram/media/post
+                apiUrl = `https://${rapidApiHost}/instagram/media/post?shortcode=${shortcode}`;
                 break;
             }
             case 'youtube': {
@@ -65,13 +86,13 @@ export async function POST(request: NextRequest) {
                         { status: 400 }
                     );
                 }
-                // YouTube endpoint
+                // SMVD YouTube endpoint - /youtube/v3/video/details
                 apiUrl = `https://${rapidApiHost}/youtube/v3/video/details?videoId=${videoId}`;
                 break;
             }
             case 'tiktok': {
-                // TikTok endpoint
-                apiUrl = `https://${rapidApiHost}/smvd/get/all?url=${encodeURIComponent(url)}`;
+                // SMVD TikTok endpoint - /tiktok/post/details
+                apiUrl = `https://${rapidApiHost}/tiktok/post/details?url=${encodeURIComponent(url)}`;
                 break;
             }
             default:
@@ -94,7 +115,7 @@ export async function POST(request: NextRequest) {
         const data = await response.json();
 
         console.log('API response status:', response.status);
-        console.log('API response:', JSON.stringify(data).substring(0, 1000));
+        console.log('API response:', JSON.stringify(data).substring(0, 1500));
 
         if (!response.ok) {
             return NextResponse.json(
@@ -103,83 +124,74 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Extract download URL based on response format
+        // Extract download URL based on platform and response format
         let mediaUrl = null;
         let filename = 'download';
         const medias: Array<{ url: string; type: string; quality?: string }> = [];
 
-        // Common response patterns for social media video downloaders
-        // Pattern 1: Direct URL in response
-        if (data.link || data.url || data.download_url) {
-            mediaUrl = data.link || data.url || data.download_url;
-            filename = platform === 'youtube' ? 'youtube_video.mp4' :
-                platform === 'instagram' ? 'instagram_media' :
-                    'tiktok_video.mp4';
-        }
-
-        // Pattern 2: links array (common for SMVD API)
-        if (data.links && Array.isArray(data.links) && data.links.length > 0) {
-            for (const link of data.links) {
-                medias.push({
-                    url: link.link || link.url,
-                    type: link.type || 'video',
-                    quality: link.quality || link.resolution,
-                });
+        if (platform === 'instagram') {
+            // Instagram response parsing
+            // Check for video URL first
+            if (data.video_url) {
+                mediaUrl = data.video_url;
+                filename = 'instagram_video.mp4';
+            } else if (data.display_url || data.thumbnail_url) {
+                mediaUrl = data.display_url || data.thumbnail_url;
+                filename = 'instagram_image.jpg';
             }
-            // Get the first/best quality
-            if (medias.length > 0 && medias[0].url) {
-                mediaUrl = medias[0].url;
-                filename = `${platform}_video.mp4`;
-            }
-        }
-
-        // Pattern 3: YouTube formats array
-        if (data.formats && Array.isArray(data.formats) && data.formats.length > 0) {
-            for (const format of data.formats) {
-                if (format.url) {
+            // Check for carousel/sidecar posts
+            if (data.edge_sidecar_to_children?.edges) {
+                for (const edge of data.edge_sidecar_to_children.edges) {
+                    const node = edge.node;
                     medias.push({
-                        url: format.url,
-                        type: format.hasVideo ? 'video' : 'audio',
-                        quality: format.qualityLabel || format.quality,
+                        url: node.video_url || node.display_url,
+                        type: node.is_video ? 'video' : 'image',
                     });
                 }
             }
-            // Get video with audio
-            const videoWithAudio = data.formats.filter((f: { hasAudio?: boolean; hasVideo?: boolean }) =>
-                f.hasAudio && f.hasVideo
-            );
-            if (videoWithAudio.length > 0) {
-                mediaUrl = videoWithAudio[videoWithAudio.length - 1].url;
-                filename = 'youtube_video.mp4';
-            } else if (medias.length > 0) {
-                mediaUrl = medias[0].url;
-                filename = 'youtube_video.mp4';
-            }
-        }
+        } else if (platform === 'youtube') {
+            // YouTube response parsing
+            if (data.formats && Array.isArray(data.formats) && data.formats.length > 0) {
+                // Get video with audio (usually best quality)
+                const videoWithAudio = data.formats.filter((f: { hasAudio?: boolean; hasVideo?: boolean }) =>
+                    f.hasAudio && f.hasVideo
+                );
+                if (videoWithAudio.length > 0) {
+                    // Get the last one (usually highest quality)
+                    const best = videoWithAudio[videoWithAudio.length - 1];
+                    mediaUrl = best.url;
+                    filename = 'youtube_video.mp4';
+                } else if (data.formats[0]?.url) {
+                    mediaUrl = data.formats[0].url;
+                    filename = 'youtube_video.mp4';
+                }
 
-        // Pattern 4: media array
-        if (data.media && Array.isArray(data.media) && data.media.length > 0) {
-            for (const m of data.media) {
-                medias.push({
-                    url: m.url || m.link,
-                    type: m.type || 'video',
-                    quality: m.quality,
-                });
+                // Add all formats to picker for user choice
+                for (const format of data.formats) {
+                    if (format.url) {
+                        medias.push({
+                            url: format.url,
+                            type: format.hasVideo ? 'video' : 'audio',
+                            quality: format.qualityLabel || format.quality,
+                        });
+                    }
+                }
+            } else if (data.url || data.download_url || data.link) {
+                // Fallback for simpler response format
+                mediaUrl = data.url || data.download_url || data.link;
+                filename = 'youtube_video.mp4';
             }
-            if (medias.length > 0 && medias[0].url) {
-                mediaUrl = medias[0].url;
-                filename = `${platform}_media`;
-            }
-        }
-
-        // Pattern 5: video/image direct properties
-        if (!mediaUrl) {
-            if (data.video || data.video_url || data.videoUrl) {
-                mediaUrl = data.video || data.video_url || data.videoUrl;
-                filename = `${platform}_video.mp4`;
-            } else if (data.image || data.image_url || data.imageUrl) {
-                mediaUrl = data.image || data.image_url || data.imageUrl;
-                filename = `${platform}_image.jpg`;
+        } else if (platform === 'tiktok') {
+            // TikTok response parsing
+            if (data.video_url || data.videoUrl || data.play) {
+                mediaUrl = data.video_url || data.videoUrl || data.play;
+                filename = 'tiktok_video.mp4';
+            } else if (data.video?.playAddr) {
+                mediaUrl = data.video.playAddr;
+                filename = 'tiktok_video.mp4';
+            } else if (data.download || data.downloadUrl) {
+                mediaUrl = data.download || data.downloadUrl;
+                filename = 'tiktok_video.mp4';
             }
         }
 
@@ -200,7 +212,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // Return raw response for debugging if we couldn't parse
+        // If we couldn't parse the response, return debug info
         return NextResponse.json({
             status: 'error',
             error: { code: 'Could not extract media URL from API response' },
