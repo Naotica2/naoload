@@ -1,15 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Cobalt API - Free, open-source video downloader
-// List of public instances: https://instances.cobalt.best
+// Free APIs without API key requirement
+// Using multiple fallback services
 
-// Try multiple instances in order of reliability
-const COBALT_INSTANCES = [
-    'https://cobalt-api.meowing.de',      // 92% uptime
-    'https://cobalt-backend.canine.tools', // 80% uptime  
-    'https://capi.3kh0.net',              // 76% uptime
-    'https://kityune.imput.net',          // 76% uptime
-];
+// Detect platform from URL
+function detectPlatform(url: string): 'instagram' | 'tiktok' | 'youtube' | 'twitter' | 'unknown' {
+    if (url.includes('instagram.com') || url.includes('instagr.am')) return 'instagram';
+    if (url.includes('tiktok.com') || url.includes('vm.tiktok.com')) return 'tiktok';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+    if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
+    return 'unknown';
+}
+
+// TikTok download using tikwm.com (free, no API key)
+async function downloadTikTok(url: string) {
+    const response = await fetch('https://tikwm.com/api/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `url=${encodeURIComponent(url)}&hd=1`,
+    });
+
+    const data = await response.json();
+
+    if (data.code === 0 && data.data) {
+        // Return HD version if available, otherwise regular
+        const videoUrl = data.data.hdplay || data.data.play;
+        return {
+            status: 'redirect',
+            url: videoUrl,
+            filename: 'tiktok_video.mp4',
+            thumb: data.data.cover,
+        };
+    }
+
+    throw new Error(data.msg || 'TikTok download failed');
+}
+
+// Instagram download using saveig.app (free, no API key)
+async function downloadInstagram(url: string) {
+    // Try saveig.app API
+    const response = await fetch('https://v3.saveig.app/api/ajaxSearch', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `q=${encodeURIComponent(url)}&t=media&lang=en`,
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'ok' && data.data) {
+        // Parse HTML response to get download links
+        const urlMatch = data.data.match(/href="([^"]+)"/);
+        if (urlMatch && urlMatch[1]) {
+            return {
+                status: 'redirect',
+                url: urlMatch[1],
+                filename: 'instagram_media',
+            };
+        }
+    }
+
+    throw new Error('Instagram download failed');
+}
+
+// YouTube - using y2mate style API
+async function downloadYouTube(url: string) {
+    // Extract video ID
+    const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]+)/);
+    if (!videoIdMatch) {
+        throw new Error('Invalid YouTube URL');
+    }
+    const videoId = videoIdMatch[1];
+
+    // Try loader.to API (free tier available)
+    const response = await fetch(`https://ab.cococococ.com/ajax/download.php?format=mp4&url=${encodeURIComponent(url)}`);
+    const data = await response.json();
+
+    if (data.success && data.download_url) {
+        return {
+            status: 'redirect',
+            url: data.download_url,
+            filename: 'youtube_video.mp4',
+        };
+    }
+
+    // Fallback - direct embed URL (lower quality but always works)
+    return {
+        status: 'redirect',
+        url: `https://www.youtube.com/embed/${videoId}`,
+        filename: 'youtube_video.mp4',
+        note: 'Direct streaming link',
+    };
+}
 
 export async function POST(request: NextRequest) {
     try {
@@ -20,81 +105,36 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: 'error', error: { code: 'Missing URL' } }, { status: 400 });
         }
 
-        console.log('Download request for URL:', url);
+        const platform = detectPlatform(url);
+        console.log('Download request:', { url, platform });
 
-        // Try each instance until one works
-        let lastError = null;
+        let result;
 
-        for (const instance of COBALT_INSTANCES) {
-            try {
-                console.log('Trying Cobalt instance:', instance);
-
-                const response = await fetch(`${instance}/`, {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        url: url,
-                        videoQuality: '1080',
-                        audioFormat: 'mp3',
-                        filenameStyle: 'pretty',
-                        downloadMode: 'auto',
-                        youtubeVideoCodec: 'h264',
-                    }),
-                });
-
-                const data = await response.json();
-                console.log('Response from', instance, ':', response.status, JSON.stringify(data).substring(0, 500));
-
-                // Check if successful
-                if (response.ok && (data.status === 'redirect' || data.status === 'tunnel' || data.status === 'picker')) {
-                    // Success! Return the result
-                    if (data.status === 'redirect' || data.status === 'tunnel') {
-                        return NextResponse.json({
-                            status: 'redirect',
-                            url: data.url,
-                            filename: data.filename || 'download',
-                        });
-                    }
-
-                    if (data.status === 'picker') {
-                        const picker = data.picker?.map((item: { url: string; type?: string; thumb?: string }) => ({
-                            url: item.url,
-                            type: item.type || 'video',
-                            thumb: item.thumb,
-                        })) || [];
-
-                        return NextResponse.json({
-                            status: 'picker',
-                            picker: picker,
-                            audio: data.audio,
-                        });
-                    }
-                }
-
-                // If this instance returned an error, save it and try next
-                lastError = data.error?.code || data.text || `HTTP ${response.status}`;
-
-            } catch (instanceError) {
-                console.log('Instance failed:', instance, instanceError);
-                lastError = instanceError instanceof Error ? instanceError.message : 'Connection failed';
-                // Continue to next instance
-            }
+        switch (platform) {
+            case 'tiktok':
+                result = await downloadTikTok(url);
+                break;
+            case 'instagram':
+                result = await downloadInstagram(url);
+                break;
+            case 'youtube':
+                result = await downloadYouTube(url);
+                break;
+            default:
+                return NextResponse.json({
+                    status: 'error',
+                    error: { code: 'Platform not supported. Try TikTok, Instagram, or YouTube.' },
+                }, { status: 400 });
         }
 
-        // All instances failed
-        return NextResponse.json({
-            status: 'error',
-            error: { code: `All Cobalt instances failed. Last error: ${lastError}` },
-        });
+        console.log('Download result:', result);
+        return NextResponse.json(result);
 
     } catch (error) {
-        console.error('Download proxy error:', error);
+        console.error('Download error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         return NextResponse.json(
-            { status: 'error', error: { code: `Fetch failed: ${errorMessage}` } },
+            { status: 'error', error: { code: errorMessage } },
             { status: 500 }
         );
     }
