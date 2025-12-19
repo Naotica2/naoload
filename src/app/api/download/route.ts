@@ -1,40 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Helper to detect platform from URL
-function detectPlatform(url: string): 'instagram' | 'tiktok' | 'youtube' | 'unknown' {
-    if (url.includes('instagram.com') || url.includes('instagr.am')) return 'instagram';
-    if (url.includes('tiktok.com') || url.includes('vm.tiktok.com')) return 'tiktok';
-    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
-    return 'unknown';
-}
-
-// Extract Instagram shortcode from URL
-function extractInstagramShortcode(url: string): string | null {
-    const patterns = [
-        /instagram\.com\/p\/([A-Za-z0-9_-]+)/,
-        /instagram\.com\/reel\/([A-Za-z0-9_-]+)/,
-        /instagram\.com\/reels\/([A-Za-z0-9_-]+)/,
-    ];
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
-    }
-    return null;
-}
-
-// Extract YouTube video ID from URL
-function extractYoutubeVideoId(url: string): string | null {
-    const patterns = [
-        /youtube\.com\/watch\?v=([A-Za-z0-9_-]+)/,
-        /youtu\.be\/([A-Za-z0-9_-]+)/,
-        /youtube\.com\/shorts\/([A-Za-z0-9_-]+)/,
-    ];
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) return match[1];
-    }
-    return null;
-}
+// Cobalt API - Free, open-source, no API key needed
+// Docs: https://github.com/imputnet/cobalt
 
 export async function POST(request: NextRequest) {
     try {
@@ -45,177 +12,86 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ status: 'error', error: { code: 'Missing URL' } }, { status: 400 });
         }
 
-        const rapidApiKey = process.env.RAPIDAPI_KEY;
-        const rapidApiHost = process.env.RAPIDAPI_HOST || 'social-media-video-downloader.p.rapidapi.com';
+        // Cobalt API URL - You can use the public instance or self-host
+        // Public instance: https://api.cobalt.tools
+        // Alternative: https://co.wuk.sh (older)
+        const cobaltApiUrl = process.env.COBALT_API_URL || 'https://api.cobalt.tools';
 
-        if (!rapidApiKey) {
-            console.error('RAPIDAPI_KEY not configured');
-            return NextResponse.json(
-                { status: 'error', error: { code: 'API key not configured' } },
-                { status: 500 }
-            );
-        }
-
-        const platform = detectPlatform(url);
         console.log('Download request for URL:', url);
-        console.log('Detected platform:', platform);
-        console.log('Using API Host:', rapidApiHost);
+        console.log('Using Cobalt API:', cobaltApiUrl);
 
-        let apiUrl = '';
-
-        // Build API request based on platform
-        // Using SMVD (Social Media Video Downloader) API endpoints
-        switch (platform) {
-            case 'instagram': {
-                const shortcode = extractInstagramShortcode(url);
-                if (!shortcode) {
-                    return NextResponse.json(
-                        { status: 'error', error: { code: 'Invalid Instagram URL. Please use a post or reel URL.' } },
-                        { status: 400 }
-                    );
-                }
-                // SMVD Instagram endpoint - /instagram/media/post
-                apiUrl = `https://${rapidApiHost}/instagram/media/post?shortcode=${shortcode}`;
-                break;
-            }
-            case 'youtube': {
-                const videoId = extractYoutubeVideoId(url);
-                if (!videoId) {
-                    return NextResponse.json(
-                        { status: 'error', error: { code: 'Invalid YouTube URL' } },
-                        { status: 400 }
-                    );
-                }
-                // SMVD YouTube endpoint - /youtube/v3/video/details
-                apiUrl = `https://${rapidApiHost}/youtube/v3/video/details?videoId=${videoId}`;
-                break;
-            }
-            case 'tiktok': {
-                // SMVD TikTok endpoint - /tiktok/post/details
-                apiUrl = `https://${rapidApiHost}/tiktok/post/details?url=${encodeURIComponent(url)}`;
-                break;
-            }
-            default:
-                return NextResponse.json(
-                    { status: 'error', error: { code: 'Platform not supported. Use Instagram, TikTok, or YouTube.' } },
-                    { status: 400 }
-                );
-        }
-
-        console.log('API URL:', apiUrl);
-
-        const response = await fetch(apiUrl, {
-            method: 'GET',
+        const response = await fetch(`${cobaltApiUrl}/`, {
+            method: 'POST',
             headers: {
-                'X-RapidAPI-Key': rapidApiKey,
-                'X-RapidAPI-Host': rapidApiHost,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
             },
+            body: JSON.stringify({
+                url: url,
+                videoQuality: '1080',      // Max quality: 144, 240, 360, 480, 720, 1080, 1440, 2160, max
+                audioFormat: 'mp3',        // mp3, ogg, opus, wav
+                filenameStyle: 'pretty',   // classic, pretty, basic, nerdy
+                downloadMode: 'auto',      // auto, audio, mute
+                youtubeVideoCodec: 'h264', // h264, av1, vp9
+                youtubeDubLang: 'id',      // Language for dubbed audio
+            }),
         });
 
         const data = await response.json();
 
-        console.log('API response status:', response.status);
-        console.log('API response:', JSON.stringify(data).substring(0, 1500));
+        console.log('Cobalt API response status:', response.status);
+        console.log('Cobalt API response:', JSON.stringify(data).substring(0, 1000));
 
         if (!response.ok) {
             return NextResponse.json(
-                { status: 'error', error: { code: data.message || data.error || `API Error: ${response.status}` } },
+                {
+                    status: 'error',
+                    error: {
+                        code: data.error?.code || data.text || `API Error: ${response.status}`
+                    }
+                },
                 { status: response.status || 400 }
             );
         }
 
-        // Extract download URL based on platform and response format
-        let mediaUrl = null;
-        let filename = 'download';
-        const medias: Array<{ url: string; type: string; quality?: string }> = [];
+        // Handle Cobalt response types
+        // status can be: redirect, tunnel, picker, error
 
-        if (platform === 'instagram') {
-            // Instagram response parsing
-            // Check for video URL first
-            if (data.video_url) {
-                mediaUrl = data.video_url;
-                filename = 'instagram_video.mp4';
-            } else if (data.display_url || data.thumbnail_url) {
-                mediaUrl = data.display_url || data.thumbnail_url;
-                filename = 'instagram_image.jpg';
-            }
-            // Check for carousel/sidecar posts
-            if (data.edge_sidecar_to_children?.edges) {
-                for (const edge of data.edge_sidecar_to_children.edges) {
-                    const node = edge.node;
-                    medias.push({
-                        url: node.video_url || node.display_url,
-                        type: node.is_video ? 'video' : 'image',
-                    });
-                }
-            }
-        } else if (platform === 'youtube') {
-            // YouTube response parsing
-            if (data.formats && Array.isArray(data.formats) && data.formats.length > 0) {
-                // Get video with audio (usually best quality)
-                const videoWithAudio = data.formats.filter((f: { hasAudio?: boolean; hasVideo?: boolean }) =>
-                    f.hasAudio && f.hasVideo
-                );
-                if (videoWithAudio.length > 0) {
-                    // Get the last one (usually highest quality)
-                    const best = videoWithAudio[videoWithAudio.length - 1];
-                    mediaUrl = best.url;
-                    filename = 'youtube_video.mp4';
-                } else if (data.formats[0]?.url) {
-                    mediaUrl = data.formats[0].url;
-                    filename = 'youtube_video.mp4';
-                }
-
-                // Add all formats to picker for user choice
-                for (const format of data.formats) {
-                    if (format.url) {
-                        medias.push({
-                            url: format.url,
-                            type: format.hasVideo ? 'video' : 'audio',
-                            quality: format.qualityLabel || format.quality,
-                        });
-                    }
-                }
-            } else if (data.url || data.download_url || data.link) {
-                // Fallback for simpler response format
-                mediaUrl = data.url || data.download_url || data.link;
-                filename = 'youtube_video.mp4';
-            }
-        } else if (platform === 'tiktok') {
-            // TikTok response parsing
-            if (data.video_url || data.videoUrl || data.play) {
-                mediaUrl = data.video_url || data.videoUrl || data.play;
-                filename = 'tiktok_video.mp4';
-            } else if (data.video?.playAddr) {
-                mediaUrl = data.video.playAddr;
-                filename = 'tiktok_video.mp4';
-            } else if (data.download || data.downloadUrl) {
-                mediaUrl = data.download || data.downloadUrl;
-                filename = 'tiktok_video.mp4';
-            }
-        }
-
-        // Return single media URL if found
-        if (mediaUrl) {
+        if (data.status === 'redirect' || data.status === 'tunnel') {
+            // Direct download URL
             return NextResponse.json({
                 status: 'redirect',
-                url: mediaUrl,
-                filename: filename,
+                url: data.url,
+                filename: data.filename || 'download',
             });
         }
 
-        // Return picker if multiple medias found
-        if (medias.length > 0) {
+        if (data.status === 'picker') {
+            // Multiple options available (e.g., Instagram carousel, TikTok slideshow)
+            const picker = data.picker?.map((item: { url: string; type?: string; thumb?: string }) => ({
+                url: item.url,
+                type: item.type || 'video',
+                thumb: item.thumb,
+            })) || [];
+
             return NextResponse.json({
                 status: 'picker',
-                picker: medias,
+                picker: picker,
+                audio: data.audio, // Optional audio URL for slideshows
             });
         }
 
-        // If we couldn't parse the response, return debug info
+        if (data.status === 'error') {
+            return NextResponse.json({
+                status: 'error',
+                error: { code: data.error?.code || data.text || 'Unknown error from Cobalt' },
+            });
+        }
+
+        // Fallback - return raw response
         return NextResponse.json({
             status: 'error',
-            error: { code: 'Could not extract media URL from API response' },
+            error: { code: 'Unknown response format from Cobalt' },
             debug: data,
         });
 
