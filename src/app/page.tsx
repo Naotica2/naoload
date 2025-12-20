@@ -2,16 +2,18 @@
 
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import { Download, Music, Video, Sparkles, Zap, Shield, Globe } from 'lucide-react';
+import { Download, Sparkles, Zap, Shield, Globe } from 'lucide-react';
 
 // URL validation regex for supported platforms
-const URL_REGEX = /^(https?:\/\/)?(www\.)?(tiktok\.com|vm\.tiktok\.com|instagram\.com|facebook\.com|fb\.watch)\/.+$/i;
+const URL_REGEX = /^(https?:\/\/)?(www\.)?(tiktok\.com|vm\.tiktok\.com|instagram\.com|facebook\.com|fb\.watch|youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i;
 
 // Platform detection
 function detectPlatform(url: string): string {
   if (url.includes('tiktok.com') || url.includes('vm.tiktok.com')) return 'tiktok';
   if (url.includes('instagram.com')) return 'instagram';
   if (url.includes('facebook.com') || url.includes('fb.watch')) return 'facebook';
+  if (url.includes('music.youtube.com')) return 'youtube_music';
+  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
   return 'unknown';
 }
 
@@ -54,7 +56,6 @@ function getCooldownRemaining(): number {
 
 export default function Home() {
   const [url, setUrl] = useState('');
-  const [format, setFormat] = useState<'video' | 'audio'>('video');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ url: string; filename: string } | null>(null);
@@ -107,7 +108,6 @@ export default function Home() {
         },
         body: JSON.stringify({
           url: url,
-          downloadMode: format === 'audio' ? 'audio' : 'auto',
         }),
       });
 
@@ -127,7 +127,7 @@ export default function Home() {
         await fetch('/api/log-download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform, format: format === 'audio' ? 'mp3' : 'mp4' }),
+          body: JSON.stringify({ platform, format: 'mp4' }),
         });
       } else if (data.status === 'picker') {
         // Handle picker (multiple items)
@@ -146,7 +146,7 @@ export default function Home() {
   const features = [
     { icon: Zap, title: 'Lightning Fast', desc: 'Instant processing with no wait times' },
     { icon: Shield, title: 'Privacy First', desc: 'No data stored, completely anonymous' },
-    { icon: Globe, title: '3 Platforms', desc: 'TikTok, Instagram, Facebook' },
+    { icon: Globe, title: 'All-in-One', desc: 'Download from any platform' },
     { icon: Sparkles, title: 'HD Quality', desc: 'Best quality available, always' },
   ];
 
@@ -175,27 +175,7 @@ export default function Home() {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="glass-card p-8 md:p-10 max-w-2xl mx-auto mb-16"
         >
-          {/* Format Toggle */}
-          <div className="flex justify-center mb-6">
-            <div className="format-toggle rounded-2xl p-1 flex gap-1">
-              <button
-                onClick={() => setFormat('video')}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all ${format === 'video' ? 'format-toggle-active' : 'text-slate-400 hover:text-white'
-                  }`}
-              >
-                <Video size={18} />
-                MP4
-              </button>
-              <button
-                onClick={() => setFormat('audio')}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all ${format === 'audio' ? 'format-toggle-active' : 'text-slate-400 hover:text-white'
-                  }`}
-              >
-                <Music size={18} />
-                MP3
-              </button>
-            </div>
-          </div>
+
 
           {/* URL Input */}
           <div className="relative mb-6">
@@ -256,7 +236,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="block w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-3 rounded-xl text-center transition-all"
               >
-                Download {format === 'audio' ? 'MP3' : 'MP4'}
+                Download Video
               </a>
             </motion.div>
           )}
