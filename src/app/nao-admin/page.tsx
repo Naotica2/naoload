@@ -111,7 +111,7 @@ export default function AdminPage() {
                         <div className="w-16 h-16 bg-amber-400/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <Lock className="text-amber-400" size={32} />
                         </div>
-                        <h1 className="text-2xl font-bold text-white">Nao-Admin</h1>
+                        <h1 className="text-2xl font-bold text-white">Naotica Downloader</h1>
                         <p className="text-slate-400 text-sm mt-1">Enter password to access dashboard</p>
                     </div>
 
