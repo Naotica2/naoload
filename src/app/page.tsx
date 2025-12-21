@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import { Download, Sparkles, Zap, Shield, Globe } from 'lucide-react';
+import { Download, Sparkles, Zap, Shield, Globe, Video, Music } from 'lucide-react';
 
 // URL validation regex for supported platforms
 const URL_REGEX = /^(https?:\/\/)?(www\.)?(tiktok\.com|vm\.tiktok\.com|instagram\.com|facebook\.com|fb\.watch|youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i;
@@ -60,6 +60,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ url: string; filename: string } | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [format, setFormat] = useState<'video' | 'audio'>('video');
 
   // Cooldown timer
   useState(() => {
@@ -108,6 +109,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           url: url,
+          type: format, // 'video' or 'audio'
         }),
       });
 
@@ -127,7 +129,7 @@ export default function Home() {
         await fetch('/api/log-download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform, format: 'mp4' }),
+          body: JSON.stringify({ platform, format: format === 'audio' ? 'mp3' : 'mp4' }),
         });
       } else if (data.status === 'picker') {
         // Handle picker (multiple items)
@@ -175,7 +177,29 @@ export default function Home() {
           transition={{ duration: 0.8, delay: 0.2 }}
           className="glass-card p-8 md:p-10 max-w-2xl mx-auto mb-16"
         >
-
+          {/* Format Toggle */}
+          <div className="flex justify-center gap-3 mb-6">
+            <button
+              onClick={() => setFormat('video')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all ${format === 'video'
+                ? 'bg-amber-400 text-slate-900'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }`}
+            >
+              <Video size={18} />
+              MP4 Video
+            </button>
+            <button
+              onClick={() => setFormat('audio')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold transition-all ${format === 'audio'
+                ? 'bg-amber-400 text-slate-900'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }`}
+            >
+              <Music size={18} />
+              MP3 Audio
+            </button>
+          </div>
 
           {/* URL Input */}
           <div className="relative mb-6">
@@ -236,7 +260,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="block w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-3 rounded-xl text-center transition-all"
               >
-                Download Video
+                {format === 'audio' ? 'Download MP3' : 'Download Video'}
               </a>
             </motion.div>
           )}
