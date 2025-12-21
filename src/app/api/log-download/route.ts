@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Missing platform or format' }, { status: 400 });
         }
 
-        const validPlatforms = ['youtube', 'tiktok', 'instagram', 'facebook'];
+        const validPlatforms = ['youtube', 'tiktok', 'instagram', 'facebook', 'twitter', 'youtube-music', 'other'];
         const validFormats = ['mp3', 'mp4'];
 
         if (!validPlatforms.includes(platform) || !validFormats.includes(format)) {

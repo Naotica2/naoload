@@ -4,12 +4,13 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { Download, Sparkles, Zap, Shield, Globe, Video, Music } from 'lucide-react';
 
-// URL validation regex for supported platforms
-const URL_REGEX = /^(https?:\/\/)?(www\.)?(tiktok\.com|vm\.tiktok\.com|instagram\.com|facebook\.com|fb\.watch|youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i;
+// Simple URL validation - just check if it looks like a valid URL
+// Let the API handle platform validation
+const URL_REGEX = /^(https?:\/\/)?[\w.-]+\.[a-z]{2,}(\/\S*)?$/i;
 
 // Platform detection
 function detectPlatform(url: string): string {
-  if (url.includes('tiktok.com') || url.includes('vm.tiktok.com')) return 'tiktok';
+  if (url.includes('tiktok.com') || url.includes('vm.tiktok.com') || url.includes('vt.tiktok.com')) return 'tiktok';
   if (url.includes('instagram.com')) return 'instagram';
   if (url.includes('facebook.com') || url.includes('fb.watch')) return 'facebook';
   if (url.includes('music.youtube.com')) return 'youtube_music';
@@ -82,7 +83,7 @@ export default function Home() {
     }
 
     if (!URL_REGEX.test(url)) {
-      setError('Please enter a valid TikTok, Instagram, Facebook, or YouTube URL');
+      setError('Please enter a valid URL');
       return;
     }
 
