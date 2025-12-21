@@ -59,7 +59,7 @@ export default function Home() {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{ url: string; filename: string } | null>(null);
+  const [result, setResult] = useState<{ url: string; filename: string; quality?: string } | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [format, setFormat] = useState<'video' | 'audio'>('video');
 
@@ -123,7 +123,7 @@ export default function Home() {
       }
 
       if (data.status === 'tunnel' || data.status === 'redirect') {
-        setResult({ url: data.url, filename: data.filename || 'download' });
+        setResult({ url: data.url, filename: data.filename || 'download', quality: data.quality });
 
         // Log to Supabase
         const platform = detectPlatform(url);
@@ -261,7 +261,7 @@ export default function Home() {
                 rel="noopener noreferrer"
                 className="block w-full bg-green-500 hover:bg-green-400 text-slate-900 font-bold py-3 rounded-xl text-center transition-all"
               >
-                {format === 'audio' ? 'Download MP3' : 'Download Video'}
+                {format === 'audio' ? 'Download MP3' : (result.quality?.startsWith('Image') ? 'Download Image' : 'Download Video')}
               </a>
             </motion.div>
           )}
