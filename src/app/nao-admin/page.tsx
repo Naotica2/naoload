@@ -143,7 +143,7 @@ export default function AdminPage() {
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold text-white">Nao-Admin</h1>
+                        <h1 className="text-3xl font-bold text-white">Naotica Downloader</h1>
                         <p className="text-slate-400">My dashboard atmin</p>
                     </div>
                     <button
