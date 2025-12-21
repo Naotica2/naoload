@@ -302,27 +302,51 @@ async function downloadVideo(url: string, apiKey: string): Promise<{
         m.extension === 'mp4' && m.videoAvailable && m.audioAvailable
     );
 
-    if (mp4Options.length === 0) {
-        throw new Error('No MP4 download option found');
+    const title = data.title || 'download';
+
+    // If MP4 found, return the best quality video
+    if (mp4Options.length > 0) {
+        // Sort by quality (1080p > 720p > 360p)
+        const qualityOrder: Record<string, number> = { '1080p': 3, '720p': 2, '360p': 1 };
+        mp4Options.sort((a: SnapVideoMedia, b: SnapVideoMedia) =>
+            (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0)
+        );
+
+        const bestOption = mp4Options[0];
+
+        return {
+            status: 'redirect',
+            url: bestOption.url,
+            filename: `${title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}_${Date.now()}.mp4`,
+            thumb: data.thumbnail || undefined,
+            title: title,
+            quality: `MP4 ${bestOption.quality}`,
+        };
     }
 
-    // Sort by quality (1080p > 720p > 360p)
-    const qualityOrder: Record<string, number> = { '1080p': 3, '720p': 2, '360p': 1 };
-    mp4Options.sort((a: SnapVideoMedia, b: SnapVideoMedia) =>
-        (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0)
+    // Fallback: Check for image formats (jpg, png, webp, heic)
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'heic'];
+    const imageOptions = data.medias.filter((m: SnapVideoMedia) =>
+        imageExtensions.includes(m.extension.toLowerCase())
     );
 
-    const bestOption = mp4Options[0];
-    const title = data.title || 'video_download';
+    if (imageOptions.length > 0) {
+        // Pick the first/best image option
+        const bestImage = imageOptions[0];
+        const extension = bestImage.extension.toLowerCase() === 'heic' ? 'jpg' : bestImage.extension;
 
-    return {
-        status: 'redirect',
-        url: bestOption.url,
-        filename: `${title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}_${Date.now()}.mp4`,
-        thumb: data.thumbnail || undefined,
-        title: title,
-        quality: `MP4 ${bestOption.quality}`,
-    };
+        return {
+            status: 'redirect',
+            url: bestImage.url,
+            filename: `${title.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}_${Date.now()}.${extension}`,
+            thumb: data.thumbnail || undefined,
+            title: title,
+            quality: `Image ${bestImage.quality || 'HD'}`,
+        };
+    }
+
+    // No valid media found
+    throw new Error('No downloadable media found (video or image)');
 }
 
 export async function POST(request: NextRequest) {
